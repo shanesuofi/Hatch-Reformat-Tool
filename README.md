@@ -8,7 +8,7 @@ The Hatch Reformat Tool (HRT) contains experimental code for the Hatch database 
 
 HRT takes a CSV file and command line flags and attempts to reformat that file into a format that is acceptable for importing into Hatch.  The basic HRT interface is as follows:
 
-ruby <filename> [flags]
+ruby filename [flags]
 
 HRT expects the first argument to be the input file name.
 
