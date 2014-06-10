@@ -1,0 +1,206 @@
+#Hatch Reformat Tool: Library Code
+
+require 'csv'
+
+#Write reformated data to file
+def write_file(metadata, csv_doc, in_file)
+  #outs = File.open("temp/#{in_file}", "w:iso-8859-1")
+  outs = File.open("NEW_#{in_file}", "w:iso-8859-1") #default output filename
+  if (!metadata.empty?)
+    outs.puts(metadata) # write data to file
+    #outs.puts("\r\n")
+  end
+  
+  outs.puts(csv_doc) # write data to file
+end
+#-----------------------------------------------------------------------
+
+#Converts a file obj to a string (to be like Hatch)
+def convert_to_string(ins)
+  string = ""
+  puts "convert_to_string..."
+  ins.each do |line|
+    string << line
+    p line
+  end
+  return string
+end
+#-----------------------------------------------------------------------
+
+#Displays contents of document after CSV parsing
+def show_doc(retval_arr)
+  message = retval_arr[0]
+  table = retval_arr[1]
+  
+  table.each do |row|
+    puts row
+  end
+  puts
+end
+#-----------------------------------------------------------------------
+
+#Displays contents of CSV obj
+def show_csv(csv)
+  csv.each do |row|
+    p row
+  end
+  puts
+end
+#-----------------------------------------------------------------------
+
+#Error detection, after parsing, detects possible temperature errors
+
+def detect_err(csv_doc)
+  temp_min = 0
+  temp_max = 100
+
+  puts "### Error detection."
+  
+  csv_doc.each do |row|
+    temp = row[2].to_f
+    if (temp < temp_min)
+      puts "### Error: temperature to low?", temp
+    end
+    if (temp > temp_max)
+      puts "### Error: temperature to high?", temp
+    end
+  end
+end
+#-----------------------------------------------------------------------
+
+#Takes text (from couch DB) and parses it into CSV format
+#iterator is a string
+  def filter_data_columns_csv(iterator)
+    retval = []  #puts "filter_data_columns_csv input", iterator
+    #p "filter_data_columns_csv", iterator
+
+    if iterator == nil
+      return []
+    end
+
+    csv = CSV.parse(iterator, :headers => :string, :skip_blanks => true)
+    
+    headers = csv.headers() #check for duplicate field names
+    #p "headers", headers
+    
+    dup_head = headers.detect do |e|
+      if (e == nil or !e.empty?) #use "blank" in rails?
+        headers.rindex(e) != headers.index(e)
+      end
+    end
+    
+    if (headers.empty?)
+      message = "#### Error: header filtering failed.\n"
+      return [message, nil]
+    end
+    
+    if (dup_head != nil)
+      message = "### Error: document may contain duplicate column names.\n"
+      message << "# Source: " << dup_head << "\n"
+      return [message, nil]
+    end
+    
+    if ($add_quotes == true) #re-adds quotes around fields
+      retval << headers.map {|s| '"' << "#{s}" << '"' }.join(',')
+      #puts "retval", retval
+    else
+      retval << headers.join(',') #No quotes around fields
+    end
+    #retval << "\r\n" #this new line causes errors?
+    
+    csv.each do |row|
+      if ($csv_hash == true)
+        row_hash = (row.to_hash)
+        retval << row_hash
+      else
+        retval << row
+      end
+    end
+    
+    return [message, retval]
+  end
+#-----------------------------------------------------------------------
+
+#Cuts out metadata
+def md_slice(iterator, skip_lines)
+  metadata = ""
+  
+  for i in (0..skip_lines-1)
+    metadata << iterator.lines[i] #gets n lines of metadata to cut
+  end
+  iterator.slice!(metadata) #cuts out metadata
+  
+  #p "md_slice", metadata
+  #p "md_slice", iterator
+  
+  return metadata
+end
+#-----------------------------------------------------------------------
+
+#Removes and returns a line (string) of an input "document" (string)"
+def cut_line(iterator)
+  line = iterator.lines.first
+  row = iterator.slice(line)
+  iterator.slice!(line)
+  
+  return row
+end
+
+#Takes 2 parsed CSV headers (arrays) and merges them into one string
+#Adds an optional seperator and/or unit container
+def merge_headers(head1, head2, sepr="", open="", close="")
+  merged_arr = head1.zip(head2) #merges 2 headers (arrays) together into a "2D" array
+
+  merged_str = []
+  #converts merged array into a string (with optional seperator and opening/closeing containers)
+  merged_arr.each do |h1,h2|
+    if (h1.empty? and h2.empty?)
+      h3 = '""' #empty double header cells should stay empty
+    else
+      h3 = h1 + sepr + open + h2 + close
+    end
+    merged_str << h3
+  end
+  return merged_str
+end
+
+#Replaces instances of nil in an array with an empty (blank) string ""
+def nil_blank(array)
+  if ( array.include?(nil) ) #replace nil with empty string
+    array.map! {|e| e ? e : ""}
+  end
+  return array
+end
+
+#-----------------------------------------------------------------------
+
+#Merges a double header into a single header
+def double_header(iterator)
+  #p "double_header iterator", iterator
+  head1 = cut_line(iterator)  
+  #p "head1", head1
+  head1_csv = CSV.parse(head1).flatten  
+  #p "head1_csv", head1_csv
+  head1_csv = nil_blank(head1_csv)  
+  #p "head1_csv", head1_csv
+  head1_csv.collect!{|str| str.strip} #leading and trailing whitespace removed
+  #p "head1_csv", head1_csv  
+  #puts ""
+  
+  head2 = cut_line(iterator)  
+  #p "head2", head2
+  head2_csv = CSV.parse(head2).flatten  
+  #p "head2_csv", head2_csv
+  head2_csv = nil_blank(head2_csv)  
+  #p "head2_csv", head2_csv
+  head2_csv.collect!{|str| str.strip} #leading and trailing whitespace removed
+  #p "head2_csv", head2_csv
+  
+  merged_str = merge_headers(head1_csv, head2_csv, " ", "[", "]")
+  
+  new_head = merged_str.join(',')  #creats string with "," as sperator
+  new_head << "\r\n"  #So CSV can parse headers
+  new_iterator = new_head << iterator #combines new header with data
+  return new_iterator
+end
+#-----------------------------------------------------------------------
